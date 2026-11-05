@@ -187,7 +187,6 @@ jobs:
           if-no-files-found: error
 
   create-release:
-    if: github.ref_type == 'tag'
     needs: [build-android, build-windows, build-macos, build-ios, build-linux]
     runs-on: ubuntu-latest
     permissions:
@@ -199,6 +198,8 @@ jobs:
       - name: Criar GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_id) }}
+          target_commitish: ${{ github.sha }}
           files: |
             artifacts/build-apk/*.apk
             artifacts/build-exe/*.exe
