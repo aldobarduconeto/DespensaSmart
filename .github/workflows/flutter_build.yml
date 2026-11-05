@@ -53,7 +53,13 @@ jobs:
             Select-Object -First 1
           if (-not $crt) { throw 'Runtime Visual C++ x64 não encontrado.' }
           Copy-Item -Path "$($crt.FullName)\*.dll" -Destination build\windows\x64\runner\Release
-          $version = $env:GITHUB_REF_NAME.Substring(1)
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME -creplace '^v', ''
+          } else {
+            $versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*([^\s+#]+)'
+            if (-not $versionLine) { throw 'Versão ausente no pubspec.yaml.' }
+            $version = $versionLine.Matches[0].Groups[1].Value
+          }
           & $iscc "/DAppVersion=$version" windows\installer.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
@@ -131,7 +137,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(awk '/^version:/ { print $2; exit }' pubspec.yaml)"
+          fi
           dpkg --validate-version "$version"
           arch="$(dpkg --print-architecture)"
           staging="$(mktemp -d)"
@@ -177,6 +187,7 @@ jobs:
           if-no-files-found: error
 
   create-release:
+    if: github.ref_type == 'tag'
     needs: [build-android, build-windows, build-macos, build-ios, build-linux]
     runs-on: ubuntu-latest
     permissions:
