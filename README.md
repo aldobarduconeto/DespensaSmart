@@ -241,6 +241,16 @@ O Despensa Smart oferece suporte completo a monitoramento nativo em segundo plan
 
 ## 📱 Telas do Aplicativo
 
+Capturas da interface do Flutter em layout móvel, com dados de exemplo.
+
+| Despensa | Cadastro de item |
+| :---: | :---: |
+| <img src="docs/screenshots/despensa.png" width="280" alt="Despensa com resumo de estoque, alerta de validade e filtros" /> | <img src="docs/screenshots/cadastro.png" width="280" alt="Formulário de cadastro com categoria, quantidade, unidade e validade" /> |
+
+| Carrinho de compras | Substituição com IA local |
+| :---: | :---: |
+| <img src="docs/screenshots/compras.png" width="280" alt="Carrinho com lista de compras, histórico e resumo mensal" /> | <img src="docs/screenshots/ia-local.png" width="280" alt="Tela de IA local para buscar substitutos de um ingrediente" /> |
+
 <details>
 <summary><b>1. Apresentação & Permissões (OnboardingScreen)</b></summary>
 Apresentação em 4 etapas guiadas apresentando controle de estoque, receitas com aproveitamento, carrinho de compras e assistente em 1 clique para ativar notificações e rede local.

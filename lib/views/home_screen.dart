@@ -38,20 +38,6 @@ enum PantryStatusFilter {
 
 enum PantrySortOption { name, expiry, quantity }
 
-enum _AiShortcut {
-  recipes,
-  settings,
-  consumption,
-  waste,
-  shopping,
-  quickMeals,
-  leftovers,
-  substitutes,
-  batchPrep,
-  snacks,
-  organize,
-}
-
 class HomeScreen extends StatefulWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
@@ -524,44 +510,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (index >= 0) await _editItem(_items[index]);
   }
 
-  Future<void> _openAiShortcut(_AiShortcut destination) async {
-    switch (destination) {
-      case _AiShortcut.recipes:
-        _selectTab(1);
-      case _AiShortcut.settings:
-        await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const LocalAiSettingsScreen()),
-        );
-      case _AiShortcut.waste:
-      case _AiShortcut.shopping:
-      case _AiShortcut.quickMeals:
-      case _AiShortcut.substitutes:
-      case _AiShortcut.batchPrep:
-      case _AiShortcut.snacks:
-      case _AiShortcut.organize:
-      case _AiShortcut.leftovers:
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => PantryAdviceScreen(
-              items: List.of(_items),
-              kind: switch (destination) {
-                _AiShortcut.quickMeals => PantryAdviceKind.quickMeals,
-                _AiShortcut.leftovers => PantryAdviceKind.leftovers,
-                _AiShortcut.substitutes => PantryAdviceKind.substitutes,
-                _AiShortcut.batchPrep => PantryAdviceKind.batchPrep,
-                _AiShortcut.snacks => PantryAdviceKind.snacks,
-                _AiShortcut.organize => PantryAdviceKind.organize,
-                _AiShortcut.waste => PantryAdviceKind.waste,
-                _ => PantryAdviceKind.shopping,
-              },
-            ),
-          ),
-        );
-      case _AiShortcut.consumption:
-        await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FamilyConsumptionScreen()),
-        );
-    }
+  PopupMenuItem<VoidCallback> _aiMenuItem(
+    String title,
+    IconData icon,
+    VoidCallback action,
+  ) => PopupMenuItem(
+    value: action,
+    child: ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      contentPadding: EdgeInsets.zero,
+    ),
+  );
+
+  void _openAiScreen(Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
@@ -588,98 +551,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
         ),
         actions: [
-          PopupMenuButton<_AiShortcut>(
+          PopupMenuButton<VoidCallback>(
             tooltip: 'Recursos de IA local',
             icon: const Icon(Icons.auto_awesome_outlined),
-            onSelected: _openAiShortcut,
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: _AiShortcut.recipes,
-                child: ListTile(
-                  leading: Icon(Icons.restaurant_menu_rounded),
-                  title: Text('Receitas com IA local'),
-                  contentPadding: EdgeInsets.zero,
-                ),
+            onSelected: (action) => action(),
+            itemBuilder: (context) => [
+              _aiMenuItem(
+                'Receitas com IA local',
+                Icons.restaurant_menu_rounded,
+                () => _selectTab(1),
               ),
-              PopupMenuItem(
-                value: _AiShortcut.settings,
-                child: ListTile(
-                  leading: Icon(Icons.tune_rounded),
-                  title: Text('Configurar IA e família'),
-                  contentPadding: EdgeInsets.zero,
-                ),
+              _aiMenuItem(
+                'Configurar IA e família',
+                Icons.tune_rounded,
+                () => _openAiScreen(const LocalAiSettingsScreen()),
               ),
-              PopupMenuItem(
-                value: _AiShortcut.waste,
-                child: ListTile(
-                  leading: Icon(Icons.event_available_outlined),
-                  title: Text('Aproveitar antes de vencer'),
-                  contentPadding: EdgeInsets.zero,
+              for (final kind in PantryAdviceKind.values)
+                _aiMenuItem(
+                  kind.presentation.title,
+                  kind.presentation.icon,
+                  () => _openAiScreen(
+                    PantryAdviceScreen(items: List.of(_items), kind: kind),
+                  ),
                 ),
-              ),
-              PopupMenuItem(
-                value: _AiShortcut.shopping,
-                child: ListTile(
-                  leading: Icon(Icons.shopping_cart_outlined),
-                  title: Text('Planejar compras'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _AiShortcut.quickMeals,
-                child: ListTile(
-                  leading: Icon(Icons.timer_outlined),
-                  title: Text('Refeições em 15 minutos'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _AiShortcut.leftovers,
-                child: ListTile(
-                  leading: Icon(Icons.soup_kitchen_outlined),
-                  title: Text('Reaproveitar sobras'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _AiShortcut.substitutes,
-                child: ListTile(
-                  leading: Icon(Icons.swap_horiz),
-                  title: Text('Substituir ingrediente'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _AiShortcut.batchPrep,
-                child: ListTile(
-                  leading: Icon(Icons.schedule),
-                  title: Text('Adiantar o preparo'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _AiShortcut.snacks,
-                child: ListTile(
-                  leading: Icon(Icons.lunch_dining_outlined),
-                  title: Text('Montar lanches'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _AiShortcut.organize,
-                child: ListTile(
-                  leading: Icon(Icons.inventory_2_outlined),
-                  title: Text('Organizar a despensa'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _AiShortcut.consumption,
-                child: ListTile(
-                  leading: Icon(Icons.insights_rounded),
-                  title: Text('Consumo e análise local'),
-                  contentPadding: EdgeInsets.zero,
-                ),
+              _aiMenuItem(
+                'Consumo e análise local',
+                Icons.insights_rounded,
+                () => _openAiScreen(const FamilyConsumptionScreen()),
               ),
             ],
           ),

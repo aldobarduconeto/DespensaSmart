@@ -3,6 +3,61 @@ import 'package:flutter/material.dart';
 import '../models/pantry_item.dart';
 import '../services/local_recipe_ai_service.dart';
 
+extension PantryAdvicePresentation on PantryAdviceKind {
+  ({String title, String description, IconData icon})
+  get presentation => switch (this) {
+    PantryAdviceKind.waste => (
+      title: 'Aproveitar antes de vencer',
+      icon: Icons.event_available_outlined,
+      description:
+          'Receba sugestões para aproveitar os itens próximos do vencimento.',
+    ),
+    PantryAdviceKind.shopping => (
+      title: 'Planejar compras',
+      icon: Icons.shopping_cart_outlined,
+      description:
+          'Receba sugestões de prioridades e compras complementares com base '
+          'na sua lista e no estoque disponível.',
+    ),
+    PantryAdviceKind.quickMeals => (
+      title: 'Refeições em 15 minutos',
+      icon: Icons.timer_outlined,
+      description:
+          'Veja o que dá para preparar em cerca de 15 minutos com o estoque.',
+    ),
+    PantryAdviceKind.leftovers => (
+      title: 'Reaproveitar sobras',
+      icon: Icons.soup_kitchen_outlined,
+      description:
+          'Informe o que sobrou para receber ideias de como usar em outro prato.',
+    ),
+    PantryAdviceKind.substitutes => (
+      title: 'Substituir ingrediente',
+      icon: Icons.swap_horiz,
+      description:
+          'Informe o que está faltando para buscar alternativas na despensa.',
+    ),
+    PantryAdviceKind.batchPrep => (
+      title: 'Adiantar o preparo',
+      icon: Icons.schedule,
+      description:
+          'Receba um plano para adiantar etapas de várias refeições de uma vez.',
+    ),
+    PantryAdviceKind.snacks => (
+      title: 'Montar lanches',
+      icon: Icons.lunch_dining_outlined,
+      description:
+          'Veja ideias de lanches fáceis de levar com o que você já tem.',
+    ),
+    PantryAdviceKind.organize => (
+      title: 'Organizar a despensa',
+      icon: Icons.inventory_2_outlined,
+      description:
+          'Veja como agrupar os itens e dar visibilidade aos que vencem primeiro.',
+    ),
+  };
+}
+
 class PantryAdviceScreen extends StatefulWidget {
   const PantryAdviceScreen({
     super.key,
@@ -50,49 +105,15 @@ class _PantryAdviceScreenState extends State<PantryAdviceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final (title, description) = switch (widget.kind) {
-      PantryAdviceKind.waste => (
-        'Aproveitar antes de vencer',
-        'Receba sugestões para aproveitar os itens próximos do vencimento.',
-      ),
-      PantryAdviceKind.shopping => (
-        'Planejar compras',
-        'Receba sugestões de prioridades e compras complementares com base '
-            'na sua lista e no estoque disponível.',
-      ),
-      PantryAdviceKind.quickMeals => (
-        'Refeições em 15 minutos',
-        'Veja o que dá para preparar em cerca de 15 minutos com o estoque.',
-      ),
-      PantryAdviceKind.leftovers => (
-        'Reaproveitar sobras',
-        'Informe o que sobrou para receber ideias de como usar em outro prato.',
-      ),
-      PantryAdviceKind.substitutes => (
-        'Substituir ingrediente',
-        'Informe o que está faltando para buscar alternativas na despensa.',
-      ),
-      PantryAdviceKind.batchPrep => (
-        'Adiantar o preparo',
-        'Receba um plano para adiantar etapas de várias refeições de uma vez.',
-      ),
-      PantryAdviceKind.snacks => (
-        'Montar lanches',
-        'Veja ideias de lanches fáceis de levar com o que você já tem.',
-      ),
-      PantryAdviceKind.organize => (
-        'Organizar a despensa',
-        'Veja como agrupar os itens e dar visibilidade aos que vencem primeiro.',
-      ),
-    };
+    final presentation = widget.kind.presentation;
     final isSubstitution = widget.kind == PantryAdviceKind.substitutes;
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(title: Text(presentation.title)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(description),
-          if (isSubstitution || widget.kind == PantryAdviceKind.leftovers) ...[
+          Text(presentation.description),
+          if (widget.kind.requiresIngredient) ...[
             const SizedBox(height: 16),
             TextField(
               enabled: !_generating,

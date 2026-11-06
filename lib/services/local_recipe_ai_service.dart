@@ -18,7 +18,9 @@ enum PantryAdviceKind {
   substitutes,
   batchPrep,
   snacks,
-  organize,
+  organize;
+
+  bool get requiresIngredient => this == leftovers || this == substitutes;
 }
 
 class LocalRecipeAiService {
@@ -56,7 +58,7 @@ class LocalRecipeAiService {
     return result.future;
   }
 
-  Future<void> _ensureNativePlatform() async {
+  void _ensureNativePlatform() {
     if (kIsWeb) {
       throw UnsupportedError(
         'A IA local está disponível no Android, iOS, Windows, macOS e Linux; '
@@ -66,7 +68,7 @@ class LocalRecipeAiService {
   }
 
   Future<void> _ensureInitialized() async {
-    await _ensureNativePlatform();
+    _ensureNativePlatform();
     final existing = _initializing;
     if (existing != null) {
       await existing;
@@ -86,7 +88,6 @@ class LocalRecipeAiService {
   }
 
   Future<bool> isModelInstalled() => _serializeOperation(() async {
-    await _ensureNativePlatform();
     await _ensureInitialized();
     return FlutterEdgeAi.isModelInstalled(_modelFileName);
   });
@@ -94,7 +95,6 @@ class LocalRecipeAiService {
   Future<void> downloadModel({
     required void Function(int progress) onProgress,
   }) => _serializeOperation(() async {
-    await _ensureNativePlatform();
     await _ensureInitialized();
     await FlutterEdgeAi.installModel(
       modelType: ModelType.gemma4,
@@ -103,7 +103,6 @@ class LocalRecipeAiService {
   });
 
   Future<void> deleteModel() => _serializeOperation(() async {
-    await _ensureNativePlatform();
     await _ensureInitialized();
     await FlutterEdgeAi.uninstallModel(_modelFileName);
   });
@@ -249,9 +248,8 @@ class LocalRecipeAiService {
               .take(25)
               .map((item) => item.name)
               .toList();
-    if ((kind == PantryAdviceKind.leftovers ||
-            kind == PantryAdviceKind.substitutes) &&
-        ingredient.trim().isEmpty) {
+    final ingredientName = ingredient.trim();
+    if (kind.requiresIngredient && ingredientName.isEmpty) {
       throw StateError('Informe o ingrediente para receber sugestões.');
     }
     if (kind != PantryAdviceKind.leftovers &&
@@ -266,18 +264,9 @@ class LocalRecipeAiService {
     await _ensureModelReady();
     final settings = await loadSettings();
     final data = {
-      'estoque': [
-        for (final item in selected)
-          {
-            'nome': item.name,
-            'quantidade': item.quantity,
-            'unidade': item.unit,
-            'validade': item.expiryDate?.toIso8601String().split('T').first,
-          },
-      ],
+      'estoque': _stockData(selected, includeExpiry: true),
       'lista_de_compras': shopping,
-      if (ingredient.trim().isNotEmpty)
-        'ingrediente_informado': ingredient.trim(),
+      if (ingredientName.isNotEmpty) 'ingrediente_informado': ingredientName,
       'preferencias_alimentares': settings.dietaryPreferences,
     };
     final task = switch (kind) {
@@ -422,15 +411,19 @@ class LocalRecipeAiService {
     return available;
   }
 
-  List<Map<String, Object?>> _stockData(List<PantryItem> pantry) => pantry
-      .map(
-        (item) => <String, Object?>{
-          'nome': item.name,
-          'quantidade': item.quantity,
-          'unidade': item.unit,
-        },
-      )
-      .toList(growable: false);
+  List<Map<String, Object?>> _stockData(
+    List<PantryItem> pantry, {
+    bool includeExpiry = false,
+  }) => [
+    for (final item in pantry)
+      {
+        'nome': item.name,
+        'quantidade': item.quantity,
+        'unidade': item.unit,
+        if (includeExpiry)
+          'validade': item.expiryDate?.toIso8601String().split('T').first,
+      },
+  ];
 
   Map<String, dynamic> _decodeResponseObject(String response) {
     final start = response.indexOf('{');
