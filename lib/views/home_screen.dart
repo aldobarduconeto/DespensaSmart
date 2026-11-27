@@ -14,6 +14,10 @@ import 'shopping_list_screen.dart';
 import 'local_ai_settings_screen.dart';
 import 'family_consumption_screen.dart';
 import 'pantry_advice_screen.dart';
+import 'savings_analysis_screen.dart';
+import 'batch_add_screen.dart';
+import 'pantry_forecast_screen.dart';
+import '../services/pantry_forecast_service.dart';
 import 'widgets/liquid_glass.dart';
 import 'widgets/recipe_card.dart';
 import 'widgets/empty_state.dart';
@@ -61,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<PantryItem> _filteredItems = [];
   List<Recipe> _recommendations = [];
   List<PantryItem> _expiringSoon = [];
+  Map<int, String> _depletionBadges = {};
   bool _loadingItems = true;
   bool _loadingRecipes = false;
   String? _recipeError;
@@ -187,6 +192,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             .toList()
           ..sort((a, b) => a.expiryDate!.compareTo(b.expiryDate!));
 
+    final rawChanges = await _db.exportChanges();
+    final rawEvents = rawChanges
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    final forecasts = PantryForecastService.instance.calculateForecasts(
+      items: items,
+      rawEvents: rawEvents,
+    );
+    final depletionBadges = <int, String>{
+      for (final f in forecasts)
+        if (f.badgeText.isNotEmpty) f.item.id!: f.badgeText,
+    };
+
     setState(() {
       _loadError = null;
       if (changed) {
@@ -199,6 +217,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _items = items;
       _categories = categories;
       _expiringSoon = expiring.take(20).toList();
+      _depletionBadges = depletionBadges;
       _filteredItems = _applyFilters(
         _searchController.text,
         _selectedCategory,
@@ -420,31 +439,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await LanSync.instance.initialize();
     await FamilyModeService.instance.load();
     final familyMode = FamilyModeService.instance;
-    String? person;
-    double? amount;
-    if (familyMode.available) {
-      final selection = await showConsumptionDialog(
-        context,
-        item,
-        familyMembers: familyMode.members,
-      );
-      amount = selection?.amount;
-      person = selection?.person;
-    } else {
-      amount = await showStockDialog(context, item, buying: false);
-    }
-    if (amount == null || item.id == null) return;
+    final selection = await showConsumptionDialog(
+      context,
+      item,
+      familyMembers: familyMode.available ? familyMode.members : const [],
+    );
+    if (selection == null || item.id == null) return;
     try {
-      await _db.consume(item.id!, amount, person: person);
+      await _db.consume(
+        item.id!,
+        selection.amount,
+        person: selection.person,
+        isWaste: selection.isWaste,
+        wasteReason: selection.wasteReason,
+      );
       await _loadItems();
       if (mounted) {
-        final zeroed = item.quantityAfterConsuming(amount) == 0;
+        final zeroed = item.quantityAfterConsuming(selection.amount) == 0;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              zeroed && _settings.autoAddToShoppingListOnZero
-                  ? 'Item esgotado e adicionado à lista de compras.'
-                  : 'Consumo registrado.',
+              selection.isWaste
+                  ? 'Descarte de ${item.name} registrado no histórico.'
+                  : (zeroed && _settings.autoAddToShoppingListOnZero
+                      ? 'Item esgotado e adicionado à lista de compras.'
+                      : 'Consumo registrado.'),
             ),
           ),
         );
@@ -454,7 +473,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Não foi possível registrar o consumo. Atualize o estoque e tente novamente.',
+              'Não foi possível registrar a alteração. Atualize o estoque e tente novamente.',
             ),
           ),
         );
@@ -579,7 +598,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Icons.insights_rounded,
                 () => _openAiScreen(const FamilyConsumptionScreen()),
               ),
+              _aiMenuItem(
+                'Economias da despensa',
+                Icons.savings_rounded,
+                () => _openAiScreen(const SavingsAnalysisScreen()),
+              ),
+              _aiMenuItem(
+                'Previsão de estoque',
+                Icons.timeline_rounded,
+                () => _openAiScreen(const PantryForecastScreen()),
+              ),
+              _aiMenuItem(
+                'Entrada rápida em lote',
+                Icons.playlist_add_rounded,
+                () => _openAiScreen(const BatchAddScreen()),
+              ),
             ],
+          ),
+          IconButton(
+            tooltip: 'Previsão de estoque',
+            onPressed: () => _openAiScreen(const PantryForecastScreen()),
+            icon: const Icon(Icons.timeline_rounded),
+          ),
+          IconButton(
+            tooltip: 'Economias da despensa',
+            onPressed: () => _openAiScreen(const SavingsAnalysisScreen()),
+            icon: const Icon(Icons.savings_outlined),
           ),
           IconButton(
             tooltip: 'Lista de compras',
@@ -670,10 +714,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
       floatingActionButton: _tab == 0
-          ? FloatingActionButton.extended(
-              onPressed: _addItem,
-              icon: const Icon(Icons.add),
-              label: const Text('Adicionar item'),
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'fab_batch_add',
+                  tooltip: 'Entrada em lote',
+                  onPressed: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const BatchAddScreen()),
+                    );
+                    await _loadItems();
+                  },
+                  child: const Icon(Icons.playlist_add_rounded),
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton.extended(
+                  heroTag: 'fab_add_item',
+                  onPressed: _addItem,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Adicionar item'),
+                ),
+              ],
             )
           : null,
       bottomNavigationBar: !wide
@@ -883,6 +946,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   return PantryItemCard(
                     key: ValueKey(item.id),
                     item: item,
+                    depletionBadge: item.id != null ? _depletionBadges[item.id!] : null,
                     onConsume: () => _consume(item),
                     onRestock: () => _restock(item),
                     onEdit: () => _editItem(item),

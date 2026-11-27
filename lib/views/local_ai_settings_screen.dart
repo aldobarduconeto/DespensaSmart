@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/local_recipe_ai_service.dart';
+import '../services/local_model_manager.dart';
 import '../services/family_mode_service.dart';
 import '../sync/lan_sync.dart';
 import 'family_consumption_screen.dart';
@@ -18,6 +19,7 @@ class _LocalAiSettingsScreenState extends State<LocalAiSettingsScreen> {
   final _service = LocalRecipeAiService.instance;
   final _preferencesController = TextEditingController();
   final _familyMemberController = TextEditingController();
+  final _localPathController = TextEditingController();
   LocalRecipeAiSettings _settings = const LocalRecipeAiSettings();
   List<String> _familyMembers = [];
   bool _familyConfiguredEnabled = false;
@@ -29,6 +31,11 @@ class _LocalAiSettingsScreenState extends State<LocalAiSettingsScreen> {
   bool _hasChanges = false;
   int _progress = 0;
   String? _error;
+
+  LinkedModelInfo? _linkedModel;
+  List<LocalModelCandidate> _localCandidates = [];
+  bool _scanningLocal = false;
+  String? _scanMessage;
 
   bool get _supported => !kIsWeb;
   bool get _familyEnabled => FamilyModeService.instance.available;
@@ -43,6 +50,7 @@ class _LocalAiSettingsScreenState extends State<LocalAiSettingsScreen> {
   void dispose() {
     _preferencesController.dispose();
     _familyMemberController.dispose();
+    _localPathController.dispose();
     super.dispose();
   }
 
@@ -55,12 +63,14 @@ class _LocalAiSettingsScreenState extends State<LocalAiSettingsScreen> {
       final settings = await _service.loadSettings();
       await LanSync.instance.initialize();
       await FamilyModeService.instance.load();
+      final linked = await LocalModelManager.instance.getLinkedModelInfo();
       final installed = _supported && await _service.isModelInstalled();
       if (mounted) {
         setState(() {
           _settings = settings;
           _preferencesController.text = settings.dietaryPreferences;
           _installed = installed;
+          _linkedModel = linked;
           _familyMembers = List.of(FamilyModeService.instance.members);
           _familyConfiguredEnabled =
               FamilyModeService.instance.configuredEnabled;
@@ -75,6 +85,80 @@ class _LocalAiSettingsScreenState extends State<LocalAiSettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _scanLocalModels({bool forceRefresh = true}) async {
+    setState(() {
+      _scanningLocal = true;
+      _error = null;
+      _scanMessage = 'Buscando em Downloads, Documentos e pastas de modelos...';
+      _localCandidates = [];
+    });
+
+    try {
+      final candidates = await LocalModelManager.instance.scanForModels(
+        forceRefresh: forceRefresh,
+        onCandidateFound: (candidate) {
+          if (mounted) {
+            setState(() {
+              _localCandidates = List.of(_localCandidates)..add(candidate);
+            });
+          }
+        },
+      );
+      if (mounted) {
+        setState(() {
+          _localCandidates = candidates;
+          _scanMessage = candidates.isEmpty
+              ? 'Nenhum arquivo de modelo encontrado nas pastas padrão.'
+              : '${candidates.length} modelo(s) localizado(s).';
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Erro na varredura: $e');
+    } finally {
+      if (mounted) setState(() => _scanningLocal = false);
+    }
+  }
+
+  Future<void> _linkCandidate(String path) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await LocalModelManager.instance.linkModel(path);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Modelo local vinculado com sucesso!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Falha ao vincular modelo: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _unlinkLocalModel() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await LocalModelManager.instance.unlinkModel();
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Modelo local desvinculado.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Falha ao desvincular modelo: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -410,6 +494,174 @@ class _LocalAiSettingsScreenState extends State<LocalAiSettingsScreen> {
                     child: Text(_error!, style: TextStyle(color: scheme.error)),
                   ),
                 ],
+                const SizedBox(height: 24),
+                Text(
+                  'Vinculação Rápida de Modelo Local',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                LiquidGlassCard(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.offline_bolt_rounded, color: scheme.primary, size: 26),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Conectar arquivo local existente',
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Se você já tem o Gemma 4 E2B ou outro modelo LiteRT/Task em seu computador, vincule diretamente sem baixar os 2,6 GB novamente.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                      ),
+                      if (_linkedModel != null && _linkedModel!.isAvailable) ...[
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: scheme.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: scheme.primary.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.check_circle_rounded, color: scheme.primary),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Vinculado: ${_linkedModel!.fileName}',
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      '${_linkedModel!.formattedSize} • ${_linkedModel!.path}',
+                                      style: const TextStyle(fontSize: 11),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _busy ? null : _unlinkLocalModel,
+                                child: const Text('Desvincular'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.tonalIcon(
+                            onPressed: _busy || _scanningLocal ? null : _scanLocalModels,
+                            icon: _scanningLocal
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.search_rounded),
+                            label: Text(
+                              _scanningLocal
+                                  ? 'Buscando...'
+                                  : 'Buscar Modelos no Computador',
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_scanMessage != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          _scanMessage!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ],
+                      if (_localCandidates.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 220),
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: _localCandidates.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (ctx, idx) {
+                              final cand = _localCandidates[idx];
+                              return ListTile(
+                                dense: true,
+                                leading: Icon(
+                                  cand.isGemma ? Icons.auto_awesome : Icons.insert_drive_file_outlined,
+                                  color: cand.isGemma ? scheme.primary : scheme.outline,
+                                ),
+                                title: Text(cand.fileName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text(
+                                  '${cand.formattedSize} • ${cand.directory}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: FilledButton.tonal(
+                                  onPressed: _busy ? null : () => _linkCandidate(cand.path),
+                                  child: const Text('Vincular'),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _localPathController,
+                              decoration: const InputDecoration(
+                                labelText: 'Caminho manual do arquivo',
+                                hintText: 'C:\\modelos\\gemma-4-E2B-it.litertlm',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: _busy
+                                ? null
+                                : () {
+                                    final path = _localPathController.text.trim();
+                                    if (path.isNotEmpty) _linkCandidate(path);
+                                  },
+                            child: const Text('Vincular'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 24),
                 Text(
                   'Como a IA prepara suas sugestões',

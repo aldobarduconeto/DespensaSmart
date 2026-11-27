@@ -14,6 +14,7 @@ import 'widgets/lan_sync_settings.dart';
 import 'widgets/liquid_glass.dart';
 import 'local_ai_settings_screen.dart';
 import 'family_consumption_screen.dart';
+import 'savings_analysis_screen.dart';
 import 'widgets/pantry_notification_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -783,6 +784,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               MaterialPageRoute(
                                 builder: (_) =>
                                     const FamilyConsumptionScreen(),
+                              ),
+                            ),
+                          ),
+                          const Divider(height: 16),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.savings_rounded,
+                              color: scheme.primary,
+                            ),
+                            title: const Text(
+                              'Análise de economias da despensa',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            subtitle: const Text(
+                              'Descontos obtidos, valor em risco, desperdício evitado e consultor IA local.',
+                            ),
+                            trailing: const Icon(Icons.chevron_right_rounded),
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const SavingsAnalysisScreen(),
                               ),
                             ),
                           ),

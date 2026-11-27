@@ -204,6 +204,8 @@ class PantryDatabase {
     int id,
     double amount, {
     String? person,
+    bool isWaste = false,
+    String? wasteReason,
   }) =>
       _run((journal) async {
         final key = _keyFor(journal, id);
@@ -215,6 +217,8 @@ class PantryDatabase {
           'name': current.name,
           'unit': current.unit,
           if (person != null) 'person': person.trim(),
+          if (isWaste) 'isWaste': true,
+          if (wasteReason != null) 'wasteReason': wasteReason.trim(),
         });
         if (remaining == 0 &&
             !AppSettingsService.instance.autoAddToShoppingListOnZero &&
@@ -222,6 +226,20 @@ class PantryDatabase {
           journal.append('shopping', key, {'value': false});
         }
       });
+
+  Future<void> recordWaste(
+    int id,
+    double amount, {
+    required String reason,
+    String? person,
+  }) =>
+      consume(
+        id,
+        amount,
+        person: person,
+        isWaste: true,
+        wasteReason: reason,
+      );
 
   Future<void> checkout(List<PurchaseLine> lines) => _run((journal) async {
         if (lines.isEmpty) throw ArgumentError('Carrinho vazio');

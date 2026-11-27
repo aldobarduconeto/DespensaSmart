@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
@@ -33,6 +34,7 @@ class LocalRecipeAiService {
   static const _modelFileName = 'gemma-4-E2B-it.litertlm';
   static const _modelUrl =
       'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm';
+  static const _linkedModelPathKey = 'local_ai_linked_model_path_v1';
   static const _recipeCountKey = 'local_ai_recipe_count_v1';
   static const _creativityKey = 'local_ai_creativity_v1';
   static const _dietaryPreferencesKey = 'local_ai_dietary_preferences_v1';
@@ -45,6 +47,9 @@ class LocalRecipeAiService {
 
   Future<void>? _initializing;
   Future<void> _operationQueue = Future<void>.value();
+  LocalRecipeAiSettings? _cachedSettings;
+  String? _cachedLinkedModelPath;
+  bool _linkedPathLoaded = false;
 
   Future<T> _serializeOperation<T>(Future<T> Function() operation) {
     final result = Completer<T>();
@@ -89,7 +94,54 @@ class LocalRecipeAiService {
 
   Future<bool> isModelInstalled() => _serializeOperation(() async {
     await _ensureInitialized();
+    if (FlutterEdgeAi.hasActiveModel()) return true;
+
+    if (!_linkedPathLoaded) {
+      final prefs = await SharedPreferences.getInstance();
+      _cachedLinkedModelPath = prefs.getString(_linkedModelPathKey)?.trim();
+      _linkedPathLoaded = true;
+    }
+
+    final customPath = _cachedLinkedModelPath;
+    if (customPath != null && customPath.isNotEmpty) {
+      if (File(customPath).existsSync()) {
+        return true;
+      }
+    }
     return FlutterEdgeAi.isModelInstalled(_modelFileName);
+  });
+
+  Future<void> linkCustomModel(String filePath) => _serializeOperation(() async {
+    await _ensureInitialized();
+    final file = File(filePath);
+    if (!file.existsSync()) {
+      throw FileSystemException('Arquivo do modelo não encontrado.', filePath);
+    }
+    await FlutterEdgeAi.installModel(
+      modelType: ModelType.gemma4,
+      fileType: ModelFileType.litertlm,
+    ).fromFile(file.path).install();
+    _cachedLinkedModelPath = file.path;
+    _linkedPathLoaded = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_linkedModelPathKey, file.path);
+  });
+
+  Future<void> unlinkCustomModel() => _serializeOperation(() async {
+    await _ensureInitialized();
+    final prefs = await SharedPreferences.getInstance();
+    final customPath = _cachedLinkedModelPath ?? prefs.getString(_linkedModelPathKey)?.trim();
+    _cachedLinkedModelPath = null;
+    _linkedPathLoaded = true;
+    await prefs.remove(_linkedModelPathKey);
+    if (customPath != null && customPath.isNotEmpty) {
+      final name = File(customPath).uri.pathSegments.isNotEmpty
+          ? File(customPath).uri.pathSegments.last
+          : customPath.split(RegExp(r'[/\\]')).last;
+      try {
+        await FlutterEdgeAi.uninstallModel(name);
+      } catch (_) {}
+    }
   });
 
   Future<void> downloadModel({
@@ -104,20 +156,27 @@ class LocalRecipeAiService {
 
   Future<void> deleteModel() => _serializeOperation(() async {
     await _ensureInitialized();
-    await FlutterEdgeAi.uninstallModel(_modelFileName);
+    await unlinkCustomModel();
+    try {
+      await FlutterEdgeAi.uninstallModel(_modelFileName);
+    } catch (_) {}
   });
 
   Future<LocalRecipeAiSettings> loadSettings() async {
+    if (_cachedSettings != null) return _cachedSettings!;
     final prefs = await SharedPreferences.getInstance();
-    return LocalRecipeAiSettings(
+    final settings = LocalRecipeAiSettings(
       recipeCount: (prefs.getInt(_recipeCountKey) ?? 3).clamp(1, 3),
       creativity: (prefs.getDouble(_creativityKey) ?? 0.45).clamp(0.0, 1.0),
       dietaryPreferences: prefs.getString(_dietaryPreferencesKey)?.trim() ?? '',
       prioritizeExpiring: prefs.getBool(_prioritizeExpiringKey) ?? true,
     );
+    _cachedSettings = settings;
+    return settings;
   }
 
   Future<void> saveSettings(LocalRecipeAiSettings settings) async {
+    _cachedSettings = settings;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_recipeCountKey, settings.recipeCount.clamp(1, 3));
     await prefs.setDouble(_creativityKey, settings.creativity.clamp(0.0, 1.0));
@@ -361,10 +420,56 @@ class LocalRecipeAiService {
     }
   }
 
+  Future<String> generateSavingsReport({
+    required Map<String, Object?> savingsData,
+  }) => _serializeOperation(() => _generateSavingsReport(savingsData: savingsData));
+
+  Future<String> _generateSavingsReport({
+    required Map<String, Object?> savingsData,
+  }) async {
+    await _ensureModelReady();
+    final report = (await _generateText(
+      prompt:
+          'Analise este balanço financeiro e de economias da despensa e forneça um relatório executivo '
+          'com diagnóstico financeiro, alertas de desperdício em dinheiro, oportunidades práticas de '
+          'economia imediata e recomendações para as próximas compras. '
+          'Dados financeiros da despensa: ${jsonEncode(savingsData)}',
+      contextTokens: 2048,
+      outputTokens: 850,
+      temperature: 0.3,
+      systemInstruction:
+          'Você é um especialista em economia doméstica e otimização de despensa. Responda em português '
+          'do Brasil de forma direta, encorajadora e estruturada. Cite valores em reais e produtos específicos '
+          'baseando-se estritamente nos dados fornecidos. Aponte claramente onde o usuário economizou bem e '
+          'onde há risco financeiro de perda por validade.',
+    )).trim();
+    if (report.isEmpty) {
+      throw const FormatException('A IA não retornou a análise de economias.');
+    }
+    return report;
+  }
+
   Future<void> _requireInstalledModel() async {
+    if (FlutterEdgeAi.hasActiveModel()) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final customPath = prefs.getString(_linkedModelPathKey)?.trim();
+    if (customPath != null && customPath.isNotEmpty) {
+      final file = File(customPath);
+      if (file.existsSync()) {
+        try {
+          await FlutterEdgeAi.installModel(
+            modelType: ModelType.gemma4,
+            fileType: ModelFileType.litertlm,
+          ).fromFile(file.path).install();
+          return;
+        } catch (_) {}
+      }
+    }
+
     if (!await FlutterEdgeAi.isModelInstalled(_modelFileName)) {
       throw StateError(
-        'Baixe o Gemma 4 E2B em Configurações > IA local antes de usar a IA local.',
+        'Vincule um modelo local ou baixe o Gemma 4 E2B em Configurações > IA local antes de usar a IA local.',
       );
     }
   }

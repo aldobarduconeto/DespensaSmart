@@ -8,6 +8,7 @@ class PantryItemCard extends StatelessWidget {
   final PantryItem item;
   final VoidCallback onConsume, onEdit, onDelete, onToggleShoppingList;
   final VoidCallback? onRestock;
+  final String? depletionBadge;
 
   const PantryItemCard({
     super.key,
@@ -17,6 +18,7 @@ class PantryItemCard extends StatelessWidget {
     required this.onDelete,
     required this.onToggleShoppingList,
     this.onRestock,
+    this.depletionBadge,
   });
 
   IconData _categoryIcon(String category) {
@@ -197,6 +199,12 @@ class PantryItemCard extends StatelessWidget {
                   icon: Icons.priority_high_rounded,
                   label: 'Reposição necessária',
                   color: scheme.error,
+                ),
+              if (depletionBadge != null && !empty)
+                LiquidGlassPill(
+                  icon: Icons.timelapse_rounded,
+                  label: depletionBadge!,
+                  color: scheme.secondary,
                 ),
             ],
           ),
