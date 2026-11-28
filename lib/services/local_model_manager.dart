@@ -88,7 +88,6 @@ class LocalModelManager {
     'ios',
     'linux',
     'macos',
-    'appdata',
     'program files',
     'program files (x86)',
     'windows.old',
@@ -116,6 +115,14 @@ class LocalModelManager {
       dirs.add('$home${sep}models');
       dirs.add('$home${sep}.cache${sep}huggingface');
       dirs.add('$home${sep}.ollama${sep}models');
+
+      // Specific known model cache locations on Windows and Linux/macOS
+      final localAppData = Platform.environment['LOCALAPPDATA'];
+      if (localAppData != null && localAppData.isNotEmpty) {
+        dirs.add('$localAppData${sep}flutter_gemma');
+      } else {
+        dirs.add('$home${sep}AppData${sep}Local${sep}flutter_gemma');
+      }
     }
 
     try {
@@ -294,10 +301,42 @@ class LocalModelManager {
     if (kIsWeb) {
       throw UnsupportedError('Vinculação de modelo local indisponível no navegador.');
     }
-    final file = File(filePath.trim());
-    if (!file.existsSync()) {
-      throw FileSystemException('Arquivo do modelo não encontrado.', filePath);
+    final rawPath = filePath.trim();
+    if (rawPath.isEmpty) {
+      throw FileSystemException('O caminho especificado está vazio.');
     }
+
+    File? resolvedFile;
+    final asFile = File(rawPath);
+    if (asFile.existsSync()) {
+      resolvedFile = asFile;
+    } else {
+      final asDir = Directory(rawPath);
+      if (asDir.existsSync()) {
+        // If user passed a folder, look for supported model files inside
+        for (final entity in asDir.listSync(followLinks: false)) {
+          if (entity is File) {
+            final ext = entity.path.split('.').last.toLowerCase();
+            if (_supportedExtensions.contains(ext)) {
+              if (entity.path.toLowerCase().contains('gemma')) {
+                resolvedFile = entity;
+                break;
+              }
+              resolvedFile ??= entity;
+            }
+          }
+        }
+      }
+    }
+
+    if (resolvedFile == null || !resolvedFile.existsSync()) {
+      throw FileSystemException(
+        'Arquivo do modelo não encontrado. Se você inseriu uma pasta, selecione o arquivo do modelo (.litertlm, .bin, .task).',
+        filePath,
+      );
+    }
+
+    final file = resolvedFile;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(linkedModelPathKey, file.path);

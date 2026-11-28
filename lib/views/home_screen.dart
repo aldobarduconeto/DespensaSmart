@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../data/pantry_database.dart';
 import '../services/app_settings_service.dart';
 import '../services/local_recipe_ai_service.dart';
@@ -61,6 +62,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _expiryTimer;
   final _recipes = RecipeService();
   final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
+  bool _showMobileSearch = false;
   List<PantryItem> _items = [];
   List<PantryItem> _filteredItems = [];
   List<Recipe> _recommendations = [];
@@ -130,6 +133,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _dataChanges?.cancel();
     _expiryTimer?.cancel();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     _recipes.dispose();
     super.dispose();
   }
@@ -546,112 +550,412 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
+  void _focusSearch() {
+    if (MediaQuery.sizeOf(context).width < 720) {
+      setState(() => _showMobileSearch = true);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchFocusNode.requestFocus();
+    });
+  }
+
+  Widget _buildHeaderSearch({required bool isCompact}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: isCompact ? 280 : 420,
+        minWidth: 160,
+        maxHeight: 38,
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.black.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.12)
+                : Colors.black.withValues(alpha: 0.08),
+            width: 1,
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Row(
+          children: [
+            Icon(
+              Icons.search_rounded,
+              size: 18,
+              color: scheme.primary.withValues(alpha: 0.8),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                textAlignVertical: TextAlignVertical.center,
+                style: const TextStyle(fontSize: 13.5),
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                  hintText: isCompact
+                      ? 'Buscar...'
+                      : 'Buscar na despensa... (Ctrl+F)',
+                  hintStyle: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).hintColor.withValues(alpha: 0.65),
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                ),
+                onChanged: (val) {
+                  if (_tab == 1 && val.trim().isNotEmpty) {
+                    _selectTab(0);
+                  }
+                  _filterItems(val);
+                },
+              ),
+            ),
+            if (_searchController.text.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${_filteredItems.length}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, size: 16),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                tooltip: 'Limpar busca',
+                onPressed: () {
+                  _clearSearch();
+                  _searchFocusNode.requestFocus();
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderStatusPill() {
+    final hasExpiring = _expiringSoon.isNotEmpty;
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (hasExpiring) {
+      return Tooltip(
+        message: '${_expiringSoon.length} produto(s) a vencer ou vencido(s)',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () {
+            if (_tab != 0) _selectTab(0);
+            _openExpiryAgenda();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFD97706).withValues(alpha: isDark ? 0.22 : 0.14),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: const Color(0xFFD97706).withValues(alpha: 0.4),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  size: 15,
+                  color: Color(0xFFD97706),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  '${_expiringSoon.length} a vencer',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFD97706),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_items.isNotEmpty) {
+      return Tooltip(
+        message: '${_items.length} itens cadastrados na despensa',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _setStatusFilter(PantryStatusFilter.all),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: isDark ? 0.18 : 0.10),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: scheme.primary.withValues(alpha: 0.25),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.check_circle_outline_rounded,
+                  size: 14,
+                  color: scheme.primary,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  '${_items.length} itens',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildHeaderAddButton(bool showLabel) {
+    return Tooltip(
+      message: 'Adicionar novo item na despensa',
+      child: FilledButton.tonalIcon(
+        style: FilledButton.styleFrom(
+          padding: EdgeInsets.symmetric(
+            horizontal: showLabel ? 12 : 10,
+            vertical: 0,
+          ),
+          visualDensity: VisualDensity.compact,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+        onPressed: _addItem,
+        icon: const Icon(Icons.add_rounded, size: 18),
+        label: showLabel ? const Text('Adicionar') : const SizedBox.shrink(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final shoppingCount = _items.where((e) => e.inShoppingList).length;
-    final wide = MediaQuery.sizeOf(context).width >= 850;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final wide = screenWidth >= 850;
 
-    return Scaffold(
-      extendBody: true,
-      appBar: LiquidGlassAppBar(
-        title: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(11),
-              child: Image.asset('assets/app_icon.png', width: 34, height: 34),
-            ),
-            const SizedBox(width: 10),
-            const Flexible(
-              child: Text(
-                'Despensa Smart',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 19),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          PopupMenuButton<VoidCallback>(
-            tooltip: 'Recursos de IA local',
-            icon: const Icon(Icons.auto_awesome_outlined),
-            onSelected: (action) => action(),
-            itemBuilder: (context) => [
-              _aiMenuItem(
-                'Receitas com IA local',
-                Icons.restaurant_menu_rounded,
-                () => _selectTab(1),
-              ),
-              _aiMenuItem(
-                'Configurar IA e família',
-                Icons.tune_rounded,
-                () => _openAiScreen(const LocalAiSettingsScreen()),
-              ),
-              for (final kind in PantryAdviceKind.values)
-                _aiMenuItem(
-                  kind.presentation.title,
-                  kind.presentation.icon,
-                  () => _openAiScreen(
-                    PantryAdviceScreen(items: List.of(_items), kind: kind),
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): _focusSearch,
+        const SingleActivator(LogicalKeyboardKey.keyF, meta: true): _focusSearch,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          extendBody: true,
+          appBar: _showMobileSearch
+              ? LiquidGlassAppBar(
+                  leading: IconButton(
+                    tooltip: 'Voltar',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () {
+                      setState(() => _showMobileSearch = false);
+                      _clearSearch();
+                    },
                   ),
-                ),
-              _aiMenuItem(
-                'Consumo e análise local',
-                Icons.insights_rounded,
-                () => _openAiScreen(const FamilyConsumptionScreen()),
-              ),
-              _aiMenuItem(
-                'Economias da despensa',
-                Icons.savings_rounded,
-                () => _openAiScreen(const SavingsAnalysisScreen()),
-              ),
-              _aiMenuItem(
-                'Previsão de estoque',
-                Icons.timeline_rounded,
-                () => _openAiScreen(const PantryForecastScreen()),
-              ),
-              _aiMenuItem(
-                'Entrada rápida em lote',
-                Icons.playlist_add_rounded,
-                () => _openAiScreen(const BatchAddScreen()),
-              ),
-            ],
-          ),
-          IconButton(
-            tooltip: 'Previsão de estoque',
-            onPressed: () => _openAiScreen(const PantryForecastScreen()),
-            icon: const Icon(Icons.timeline_rounded),
-          ),
-          IconButton(
-            tooltip: 'Economias da despensa',
-            onPressed: () => _openAiScreen(const SavingsAnalysisScreen()),
-            icon: const Icon(Icons.savings_outlined),
-          ),
-          IconButton(
-            tooltip: 'Lista de compras',
-            onPressed: _openShoppingList,
-            icon: Badge(
-              isLabelVisible: shoppingCount > 0,
-              label: Text('$shoppingCount'),
-              child: const Icon(Icons.shopping_cart_outlined),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Configurações',
-            onPressed: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => SettingsScreen(
-                    themeMode: widget.themeMode,
-                    onThemeModeChanged: widget.onThemeModeChanged,
+                  title: TextField(
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Buscar ingredientes...',
+                      border: InputBorder.none,
+                      hintStyle: TextStyle(
+                        color: Theme.of(context).hintColor.withValues(alpha: 0.65),
+                      ),
+                    ),
+                    onChanged: _filterItems,
                   ),
+                  actions: [
+                    if (_searchController.text.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Limpar busca',
+                        icon: const Icon(Icons.clear_rounded),
+                        onPressed: _clearSearch,
+                      ),
+                  ],
+                )
+              : LiquidGlassAppBar(
+                  title: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final width = MediaQuery.sizeOf(context).width;
+                      final showCenterSearch = width >= 720;
+                      final showStatusPill = width >= 980;
+
+                      return Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.asset(
+                              'assets/app_icon.png',
+                              width: 32,
+                              height: 32,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'Despensa Smart',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                            ),
+                          ),
+                          if (showStatusPill) ...[
+                            const SizedBox(width: 10),
+                            _buildHeaderStatusPill(),
+                          ],
+                          if (showCenterSearch) ...[
+                            const SizedBox(width: 12),
+                            const Spacer(),
+                            _buildHeaderSearch(isCompact: width < 960),
+                            const Spacer(),
+                          ],
+                        ],
+                      );
+                    },
+                  ),
+                  actions: [
+                    if (screenWidth >= 640) ...[
+                      _buildHeaderAddButton(screenWidth >= 880),
+                      const SizedBox(width: 4),
+                    ],
+                    if (screenWidth < 720)
+                      IconButton(
+                        tooltip: 'Buscar ingredientes',
+                        icon: const Icon(Icons.search_rounded),
+                        onPressed: () {
+                          setState(() => _showMobileSearch = true);
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            _searchFocusNode.requestFocus();
+                          });
+                        },
+                      ),
+                    PopupMenuButton<VoidCallback>(
+                      tooltip: 'Recursos de IA local',
+                      icon: const Icon(Icons.auto_awesome_outlined),
+                      onSelected: (action) => action(),
+                      itemBuilder: (context) => [
+                        _aiMenuItem(
+                          'Receitas com IA local',
+                          Icons.restaurant_menu_rounded,
+                          () => _selectTab(1),
+                        ),
+                        _aiMenuItem(
+                          'Configurar IA e família',
+                          Icons.tune_rounded,
+                          () => _openAiScreen(const LocalAiSettingsScreen()),
+                        ),
+                        for (final kind in PantryAdviceKind.values)
+                          _aiMenuItem(
+                            kind.presentation.title,
+                            kind.presentation.icon,
+                            () => _openAiScreen(
+                              PantryAdviceScreen(
+                                items: List.of(_items),
+                                kind: kind,
+                              ),
+                            ),
+                          ),
+                        _aiMenuItem(
+                          'Consumo e análise local',
+                          Icons.insights_rounded,
+                          () => _openAiScreen(const FamilyConsumptionScreen()),
+                        ),
+                        _aiMenuItem(
+                          'Economias da despensa',
+                          Icons.savings_rounded,
+                          () => _openAiScreen(const SavingsAnalysisScreen()),
+                        ),
+                        _aiMenuItem(
+                          'Previsão de estoque',
+                          Icons.timeline_rounded,
+                          () => _openAiScreen(const PantryForecastScreen()),
+                        ),
+                        _aiMenuItem(
+                          'Entrada rápida em lote',
+                          Icons.playlist_add_rounded,
+                          () => _openAiScreen(const BatchAddScreen()),
+                        ),
+                      ],
+                    ),
+                    if (screenWidth >= 760) ...[
+                      IconButton(
+                        tooltip: 'Previsão de estoque',
+                        onPressed: () =>
+                            _openAiScreen(const PantryForecastScreen()),
+                        icon: const Icon(Icons.timeline_rounded),
+                      ),
+                      IconButton(
+                        tooltip: 'Economias da despensa',
+                        onPressed: () =>
+                            _openAiScreen(const SavingsAnalysisScreen()),
+                        icon: const Icon(Icons.savings_outlined),
+                      ),
+                    ],
+                    IconButton(
+                      tooltip: 'Lista de compras',
+                      onPressed: _openShoppingList,
+                      icon: Badge(
+                        isLabelVisible: shoppingCount > 0,
+                        label: Text('$shoppingCount'),
+                        child: const Icon(Icons.shopping_cart_outlined),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Configurações',
+                      onPressed: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => SettingsScreen(
+                              themeMode: widget.themeMode,
+                              onThemeModeChanged: widget.onThemeModeChanged,
+                            ),
+                          ),
+                        );
+                        await _loadItems();
+                      },
+                      icon: const Icon(Icons.settings_outlined),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                 ),
-              );
-              await _loadItems();
-            },
-            icon: const Icon(Icons.settings_outlined),
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
       body: LiquidGlassBackground(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -759,6 +1063,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
             )
           : null,
+        ),
+      ),
     );
   }
 
@@ -856,26 +1162,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              sliver: SliverToBoxAdapter(
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Buscar ingredientes',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            tooltip: 'Limpar busca',
-                            icon: const Icon(Icons.clear),
-                            onPressed: _clearSearch,
-                          )
-                        : null,
+            if (MediaQuery.sizeOf(context).width < 720 && !_showMobileSearch)
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Buscar ingredientes',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              tooltip: 'Limpar busca',
+                              icon: const Icon(Icons.clear),
+                              onPressed: _clearSearch,
+                            )
+                          : null,
+                    ),
+                    onChanged: _filterItems,
                   ),
-                  onChanged: _filterItems,
                 ),
               ),
-            ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               sliver: SliverToBoxAdapter(

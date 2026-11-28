@@ -640,8 +640,9 @@ class _LocalAiSettingsScreenState extends State<LocalAiSettingsScreen> {
                             child: TextField(
                               controller: _localPathController,
                               decoration: const InputDecoration(
-                                labelText: 'Caminho manual do arquivo',
-                                hintText: 'C:\\modelos\\gemma-4-E2B-it.litertlm',
+                                labelText: 'Caminho do arquivo ou pasta do modelo',
+                                hintText: 'C:\\Users\\...\\AppData\\Local\\flutter_gemma',
+                                helperText: 'Você pode colar o caminho do arquivo (.litertlm) ou da pasta que o contém.',
                                 border: OutlineInputBorder(),
                                 isDense: true,
                               ),

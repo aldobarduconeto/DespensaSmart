@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 import 'services/app_settings_service.dart';
+import 'services/platform_utils.dart';
 import 'services/theme_service.dart';
 import 'sync/lan_sync.dart';
 import 'views/home_screen.dart';
@@ -16,6 +18,24 @@ void callbackDispatcher() => pantryCallbackDispatcher();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (isDesktopPlatform) {
+    await windowManager.ensureInitialized();
+    const windowOptions = WindowOptions(
+      size: Size(1280, 760),
+      minimumSize: Size(480, 520),
+      center: true,
+      backgroundColor: Colors.transparent,
+      skipTaskbar: false,
+      titleBarStyle: TitleBarStyle.hidden,
+      windowButtonVisibility: false,
+    );
+    await windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
+
   final themeModeFuture = ThemeService.loadThemeMode();
   final onboardingDoneFuture = ThemeService.isOnboardingCompleted();
   await AppSettingsService.instance.load();
@@ -93,6 +113,12 @@ class _AppState extends State<App> {
       themeMode: _themeMode,
       theme: _lightTheme,
       darkTheme: _darkTheme,
+      builder: (context, child) {
+        if (isWindowsDesktop) {
+          child = VirtualWindowFrameInit()(context, child);
+        }
+        return child ?? const SizedBox.shrink();
+      },
       home: AnimatedSwitcher(
         duration: const Duration(milliseconds: 350),
         child: _showOnboarding

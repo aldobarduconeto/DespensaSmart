@@ -1,6 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../services/app_settings_service.dart';
+import '../../services/platform_utils.dart';
+import 'desktop_window_controls.dart';
 
 /// Ambient background with soft glowing orbs that create depth and color
 /// refraction behind Liquid Glass surfaces.
@@ -218,6 +220,9 @@ class LiquidGlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   final List<Widget>? actions;
   final Widget? leading;
   final double height;
+  final bool includeWindowControls;
+  final Widget? flexibleSpace;
+  final bool centerTitle;
 
   const LiquidGlassAppBar({
     super.key,
@@ -225,6 +230,9 @@ class LiquidGlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.actions,
     this.leading,
     this.height = kToolbarHeight + 6,
+    this.includeWindowControls = true,
+    this.flexibleSpace,
+    this.centerTitle = false,
   });
 
   @override
@@ -233,6 +241,26 @@ class LiquidGlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final effectiveLeading = isMacOSDesktop
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(width: 76),
+              if (leading != null) leading!,
+            ],
+          )
+        : leading;
+
+    final effectiveActions = <Widget>[
+      if (actions != null) ...actions!,
+      if (isWindowsOrLinuxDesktop && includeWindowControls)
+        DesktopWindowControls(
+          height: height,
+          brightness: isDark ? Brightness.dark : Brightness.light,
+        ),
+    ];
+
     return ListenableBuilder(
       listenable: AppSettingsService.instance,
       builder: (context, _) {
@@ -247,18 +275,18 @@ class LiquidGlassAppBar extends StatelessWidget implements PreferredSizeWidget {
                   end: Alignment.bottomCenter,
                   colors: isDark
                       ? [
-                          const Color(0xFF0F1E18).withValues(alpha: 0.80),
-                          const Color(0xFF0F1E18).withValues(alpha: 0.58),
+                          const Color(0xFF0F1E18).withValues(alpha: 0.85),
+                          const Color(0xFF0F1E18).withValues(alpha: 0.65),
                         ]
                       : [
-                          Colors.white.withValues(alpha: 0.82),
-                          Colors.white.withValues(alpha: 0.62),
+                          Colors.white.withValues(alpha: 0.85),
+                          Colors.white.withValues(alpha: 0.65),
                         ],
                 ),
                 border: Border(
                   bottom: BorderSide(
                     color: isDark
-                        ? Colors.white.withValues(alpha: 0.10)
+                        ? Colors.white.withValues(alpha: 0.12)
                         : Colors.white.withValues(alpha: 0.75),
                     width: 1,
                   ),
@@ -269,9 +297,21 @@ class LiquidGlassAppBar extends StatelessWidget implements PreferredSizeWidget {
                 surfaceTintColor: Colors.transparent,
                 elevation: 0,
                 scrolledUnderElevation: 0,
-                leading: leading,
-                title: title,
-                actions: actions,
+                centerTitle: centerTitle,
+                leading: effectiveLeading,
+                title: PlatformWindowDragArea(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: title,
+                  ),
+                ),
+                actions: effectiveActions,
+                flexibleSpace: PlatformWindowDragArea(
+                  child: Container(
+                    color: Colors.transparent,
+                    child: flexibleSpace,
+                  ),
+                ),
               ),
             ),
           ),

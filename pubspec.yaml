@@ -20,6 +20,7 @@ dependencies:
   workmanager: ^0.10.10
   flutter_edge_ai: 2.5.4
   flutter_edge_ai_litertlm: 1.19.0
+  window_manager: ^0.5.2
 
 dev_dependencies:
   flutter_test:
